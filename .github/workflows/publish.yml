@@ -1,0 +1,71 @@
+# Publishes to PyPI when a version tag is pushed:  git tag -a v0.1.0 -m "svn-obskit 0.1.0" && git push origin v0.1.0
+# Uses PyPI trusted publishing (OIDC), so no API token is stored in this repository.
+# One-time setup on PyPI is described in README.md ("Releasing").
+name: Publish to PyPI
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest -q
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: The tag must match the package version
+        run: |
+          python - <<'PY'
+          import os, tomllib
+          version = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
+          tag = os.environ["GITHUB_REF_NAME"].removeprefix("v")
+          assert version == tag, f"tag v{tag} does not match the version in pyproject.toml ({version})"
+          print("releasing", version)
+          PY
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/svn-obskit/
+    permissions:
+      id-token: write   # lets this job prove its identity to PyPI; nothing else gets this permission
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

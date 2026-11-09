@@ -75,3 +75,26 @@ buffer, SQLite outbox with dead letters, HTTP, background batching with backoff)
 propagation.
 
 Not built yet: RabbitMQ integration and transport, and a transactional outbox inside the application's own database.
+
+## Releasing
+
+A release is published to PyPI by [`.github/workflows/publish.yml`](.github/workflows/publish.yml) when a `v*` tag is
+pushed. The workflow runs lint and the tests on Python 3.11 and 3.12, checks that the tag matches `version` in
+`pyproject.toml`, builds the package, and publishes it with PyPI trusted publishing, so no API token is stored in
+the repository. `.github/workflows/ci.yml` runs the same checks on every push and pull request.
+
+One-time setup:
+
+1. On PyPI, open <https://pypi.org/manage/account/publishing/> and add a **pending publisher**: project name
+   `svn-obskit`, owner `svnviet`, repository `observability-sdk`, workflow `publish.yml`, environment `pypi`.
+2. On GitHub, open the repository's Settings, Environments, and create an environment named `pypi`
+   (optionally require your approval before each publish).
+
+Each release:
+
+```bash
+# 1. bump `version` in pyproject.toml, commit and push to main
+git tag -a v0.1.1 -m "svn-obskit 0.1.1" && git push origin v0.1.1
+```
+
+PyPI never accepts the same version twice, so a failed or wrong release needs a new version number.
