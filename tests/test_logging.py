@@ -2,10 +2,10 @@ import io
 import json
 import logging
 
-from obskit.core.config import ObservabilityConfig
-from obskit.core.context import use_context
-from obskit.core.identity import ServiceIdentity
-from obskit.logging.logger import configure_logging
+from svn_obskit.core.config import ObservabilityConfig
+from svn_obskit.core.context import use_context
+from svn_obskit.core.identity import ServiceIdentity
+from svn_obskit.logging.logger import configure_logging
 
 
 def make_logger():

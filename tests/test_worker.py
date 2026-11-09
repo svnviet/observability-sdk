@@ -2,13 +2,13 @@ import asyncio
 
 import pytest
 
-from obskit.core.config import ObservabilityConfig
-from obskit.core.context import current_context
-from obskit.core.exceptions import TransportError
-from obskit.core.identity import ServiceIdentity
-from obskit.worker.heartbeat import HeartbeatService
-from obskit.worker.lifecycle import Worker, WorkerState
-from obskit.worker.registration import NotRegistered
+from svn_obskit.core.config import ObservabilityConfig
+from svn_obskit.core.context import current_context
+from svn_obskit.core.exceptions import TransportError
+from svn_obskit.core.identity import ServiceIdentity
+from svn_obskit.worker.heartbeat import HeartbeatService
+from svn_obskit.worker.lifecycle import Worker, WorkerState
+from svn_obskit.worker.registration import NotRegistered
 
 
 class FakePlatform:

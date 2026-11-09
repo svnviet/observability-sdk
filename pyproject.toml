@@ -3,11 +3,30 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "obskit"
+name = "svn-obskit"
 version = "0.1.0"
-description = "Obskit SDK: identity, context propagation, workflow tracking, reliable event transport."
+description = "Instrumentation SDK for services that report to observability-platform: workflow tracking, worker heartbeats, resilience, OpenTelemetry spans and Prometheus metrics."
+readme = "README.md"
 requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "svnviet"}]
+keywords = ["observability", "workflow", "tracing", "opentelemetry", "prometheus", "heartbeat", "resilience"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: System :: Monitoring",
+  "Framework :: FastAPI",
+]
 dependencies = ["httpx>=0.27,<1.0"]  # the only runtime dependency; the SDK stays lightweight
+
+[project.urls]
+Homepage = "https://github.com/svnviet/observability-sdk"
+Source = "https://github.com/svnviet/observability-sdk"
+Issues = "https://github.com/svnviet/observability-sdk/issues"
 
 [project.optional-dependencies]
 # Both are optional so the base SDK stays light; features switch on when the libraries are installed.
@@ -18,7 +37,7 @@ otel = [
 ]
 metrics = ["prometheus-client>=0.20,<1"]
 dev = [
-  "obskit[otel,metrics]",
+  "svn-obskit[otel,metrics]",
   "sqlalchemy>=2,<2.1",
   "pytest>=8,<9",
   "ruff>=0.6,<1.0",

@@ -1,9 +1,17 @@
-# obskit (SDK)
+# svn-obskit
 
-Lightweight instrumentation for Services. Only runtime dependency: `httpx`.
+Lightweight instrumentation for services that report to
+[observability-platform](https://github.com/svnviet/observability-platform). Only runtime dependency: `httpx`.
+
+```bash
+pip install svn-obskit                   # core
+pip install "svn-obskit[otel,metrics]"   # + OpenTelemetry spans and Prometheus metrics
+```
+
+The distribution is `svn-obskit`; the Python package you import is `svn_obskit`. Python 3.11 or newer.
 
 ```python
-from obskit import Observability, WorkflowTracker
+from svn_obskit import Observability, WorkflowTracker
 
 obs = Observability("video-generator").initialize()  # reads OBSKIT_* env vars
 tracker = WorkflowTracker()
@@ -29,7 +37,7 @@ with tracker.workflow("news-video-pipeline", workflow_id="wf-123") as wf:
 ## Spans and metrics (optional extras)
 
 ```bash
-pip install "obskit[otel,metrics]"
+pip install "svn-obskit[otel,metrics]"
 ```
 
 - **Tracing** (`[otel]`, `OBSKIT_OTLP_ENDPOINT=http://otel-collector:4318`): spans for requests, workflows, steps
@@ -52,7 +60,7 @@ with worker.job(job_id, workflow_run_id=run.id):  # async: `async with`
 A heartbeat thread reports the service instance and every worker on `OBSKIT_HEARTBEAT_INTERVAL_S`,
 independent of job execution. `obs.shutdown()` reports a planned stop, so only a crash looks like one.
 
-## Resilience (`obskit.resilience`)
+## Resilience (`svn_obskit.resilience`)
 
 `Retry` / `RetryPolicy` (backoff, jitter, `run_step` records every attempt as a workflow step attempt),
 `with_timeout` / `run_with_timeout` / `@timeout`, `CircuitBreaker` (CLOSED, OPEN, HALF_OPEN, state-change

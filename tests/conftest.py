@@ -1,8 +1,8 @@
 import pytest
 
-from obskit import runtime
-from obskit.core.config import ObservabilityConfig
-from obskit.core.identity import ServiceIdentity
+from svn_obskit import runtime
+from svn_obskit.core.config import ObservabilityConfig
+from svn_obskit.core.identity import ServiceIdentity
 
 
 class FakeSink:
@@ -31,7 +31,7 @@ def obs():
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-    from obskit import Observability
+    from svn_obskit import Observability
 
     exporter = InMemorySpanExporter()
     o = Observability(

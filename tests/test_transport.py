@@ -3,11 +3,11 @@ import time
 import httpx
 import pytest
 
-from obskit.core.exceptions import TransportError
-from obskit.transport.background import BackgroundPublisher
-from obskit.transport.http import HttpTransport
-from obskit.transport.memory import MemoryBuffer
-from obskit.transport.outbox import SqliteOutbox
+from svn_obskit.core.exceptions import TransportError
+from svn_obskit.transport.background import BackgroundPublisher
+from svn_obskit.transport.http import HttpTransport
+from svn_obskit.transport.memory import MemoryBuffer
+from svn_obskit.transport.outbox import SqliteOutbox
 
 
 def ev(n):

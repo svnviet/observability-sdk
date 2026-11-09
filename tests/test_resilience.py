@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from obskit import WorkflowTracker
-from obskit.resilience import (
+from svn_obskit import WorkflowTracker
+from svn_obskit.resilience import (
     Bulkhead,
     BulkheadFull,
     CircuitBreaker,

@@ -1,7 +1,7 @@
 import asyncio
 
-from obskit.core.context import current_context, use_context
-from obskit.core.correlation import extract_context, inject_headers, parse_traceparent
+from svn_obskit.core.context import current_context, use_context
+from svn_obskit.core.correlation import extract_context, inject_headers, parse_traceparent
 
 TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
 

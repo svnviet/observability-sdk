@@ -2,9 +2,9 @@ import asyncio
 
 import pytest
 
-from obskit import WorkflowTracker
-from obskit.core.context import current_context
-from obskit.workflow.step import StepHandle
+from svn_obskit import WorkflowTracker
+from svn_obskit.core.context import current_context
+from svn_obskit.workflow.step import StepHandle
 
 
 def test_sync_workflow_emits_lifecycle_in_contract_shape(sink):

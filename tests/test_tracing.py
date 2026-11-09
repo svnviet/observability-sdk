@@ -6,10 +6,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from opentelemetry.trace import StatusCode
 
-from obskit import use_context
-from obskit.integrations import httpx as obs_httpx
-from obskit.middleware.fastapi import ObservabilityMiddleware
-from obskit.tracing.decorators import span as traced
+from svn_obskit import use_context
+from svn_obskit.integrations import httpx as obs_httpx
+from svn_obskit.middleware.fastapi import ObservabilityMiddleware
+from svn_obskit.tracing.decorators import span as traced
 
 TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
 PARENT = "00f067aa0ba902b7"
@@ -72,7 +72,7 @@ def make_server_app():
     @app.get("/qa/{item}")
     def qa(item: str):
         run = None
-        from obskit import WorkflowTracker
+        from svn_obskit import WorkflowTracker
 
         run = WorkflowTracker().current()
         if run is not None:
@@ -172,7 +172,7 @@ def test_worker_job_is_a_span_with_worker_attributes(obs):
 
 
 def test_tracing_is_off_without_an_endpoint_or_processor():
-    from obskit import Observability
+    from svn_obskit import Observability
 
     o = Observability("svc-x", heartbeat_interval_s=3600).initialize()
     try:
@@ -184,7 +184,7 @@ def test_tracing_is_off_without_an_endpoint_or_processor():
 
 
 def test_otlp_endpoint_enables_tracing_and_shutdown_does_not_hang():
-    from obskit import Observability
+    from svn_obskit import Observability
 
     o = Observability("svc-x", otlp_endpoint="http://127.0.0.1:9", heartbeat_interval_s=3600).initialize()
     assert o.tracing is not None  # exports in the background; an unreachable collector must not break the app

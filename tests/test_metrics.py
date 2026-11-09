@@ -5,9 +5,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from obskit.integrations import httpx as obs_httpx
-from obskit.metrics.registry import BoundedLabels
-from obskit.middleware.fastapi import ObservabilityMiddleware
+from svn_obskit.integrations import httpx as obs_httpx
+from svn_obskit.metrics.registry import BoundedLabels
+from svn_obskit.middleware.fastapi import ObservabilityMiddleware
 
 
 def sample(obs, name, **labels):
@@ -205,7 +205,7 @@ def test_process_and_heartbeat_metrics(obs):
 def test_database_operations_are_timed_and_spanned_without_leaking_sql(obs):
     from sqlalchemy import create_engine, text
 
-    from obskit.integrations.sqlalchemy import instrument
+    from svn_obskit.integrations.sqlalchemy import instrument
 
     engine = create_engine("sqlite://")
     instrument(engine)
@@ -222,7 +222,7 @@ def test_database_operations_are_timed_and_spanned_without_leaking_sql(obs):
 
 
 def test_metrics_can_be_switched_off():
-    from obskit import Observability
+    from svn_obskit import Observability
 
     o = Observability("svc-x", metrics_enabled=False, heartbeat_interval_s=3600).initialize()
     try:

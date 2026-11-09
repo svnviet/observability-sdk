@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from obskit import WorkflowTracker, current_context
-from obskit.core.correlation import parse_traceparent
-from obskit.integrations import httpx as obs_httpx
-from obskit.middleware.fastapi import ObservabilityMiddleware
+from svn_obskit import WorkflowTracker, current_context
+from svn_obskit.core.correlation import parse_traceparent
+from svn_obskit.integrations import httpx as obs_httpx
+from svn_obskit.middleware.fastapi import ObservabilityMiddleware
 
 TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
 
@@ -58,7 +58,7 @@ def test_downstream_service_joins_upstream_workflow(sink):
 
 
 def test_httpx_client_injects_current_context():
-    from obskit import use_context
+    from svn_obskit import use_context
 
     seen = {}
 
