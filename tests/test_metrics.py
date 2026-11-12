@@ -1,3 +1,4 @@
+import sys
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -198,7 +199,8 @@ def test_process_and_heartbeat_metrics(obs):
     assert sample(obs, "obskit_process_resident_memory_bytes") > 1_000_000
     assert sample(obs, "obskit_process_threads") >= 1
     assert sample(obs, "obskit_process_cpu_seconds_total") >= 0
-    assert sample(obs, "obskit_process_open_fds") > 0
+    if sys.platform != "win32":  # no /proc or /dev/fd to count from on Windows
+        assert sample(obs, "obskit_process_open_fds") > 0
     assert sample(obs, "obskit_worker_heartbeat_age_seconds") is None  # no platform, no heartbeat yet
 
 

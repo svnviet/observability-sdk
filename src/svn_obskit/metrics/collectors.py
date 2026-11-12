@@ -1,7 +1,6 @@
 """Values computed at scrape time: process health and worker state."""
 
 import os
-import resource
 import sys
 import threading
 import time
@@ -9,6 +8,11 @@ from collections import Counter as TallyCounter
 from collections.abc import Callable, Iterable
 
 from svn_obskit.worker.lifecycle import Worker, WorkerState
+
+try:
+    import resource
+except ImportError:  # Windows has no `resource` module
+    resource = None  # type: ignore[assignment]
 
 try:
     from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily
@@ -19,11 +23,37 @@ _STARTED = time.time()
 _AVAILABLE_STATES = {WorkerState.IDLE, WorkerState.BUSY}
 
 
-def _resident_bytes() -> float:
+def _windows_resident_bytes() -> float | None:
+    # Current working set via psapi, without a psutil dependency.
+    import ctypes
+    from ctypes import wintypes
+
+    class _Counters(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD),
+            ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
+            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+            ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t),
+        ]  # fmt: skip
+
+    counters = _Counters(cb=ctypes.sizeof(_Counters))
+    kernel32 = ctypes.WinDLL("kernel32")
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    psapi = ctypes.WinDLL("psapi")
+    psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(_Counters), wintypes.DWORD]
+    if not psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+        return None
+    return float(counters.WorkingSetSize)
+
+
+def _resident_bytes() -> float | None:
     try:  # current RSS on Linux
         with open("/proc/self/statm") as f:
             return float(int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE"))
-    except (OSError, ValueError, IndexError):
+    except (OSError, ValueError, IndexError, AttributeError):  # AttributeError: no os.sysconf on Windows
+        if resource is None:
+            return _windows_resident_bytes() if sys.platform == "win32" else None
         peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # peak, bytes on macOS and KB on Linux
         return float(peak if sys.platform == "darwin" else peak * 1024)
 
@@ -49,15 +79,16 @@ class RuntimeCollector:
         self._heartbeat_age = heartbeat_age
 
     def collect(self):
-        usage = resource.getrusage(resource.RUSAGE_SELF)
         yield GaugeMetricFamily("obskit_process_uptime_seconds", "Seconds since the SDK was loaded.",
                                 value=time.time() - _STARTED)  # fmt: skip
         cpu = CounterMetricFamily("obskit_process_cpu_seconds", "CPU time used by the process.")
-        cpu.add_metric([], usage.ru_utime + usage.ru_stime)
+        cpu.add_metric([], time.process_time())  # user + system CPU, on every platform
         yield cpu
-        yield GaugeMetricFamily(
-            "obskit_process_resident_memory_bytes", "Resident memory.", value=_resident_bytes()
-        )
+        resident = _resident_bytes()
+        if resident is not None:
+            yield GaugeMetricFamily(
+                "obskit_process_resident_memory_bytes", "Resident memory.", value=resident
+            )
         yield GaugeMetricFamily(
             "obskit_process_threads", "Active threads.", value=float(threading.active_count())
         )
