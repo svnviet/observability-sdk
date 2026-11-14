@@ -164,3 +164,23 @@ def test_graceful_stop_reports_stopping_and_stopped_workers(identity):
     hb.stop()
     assert platform.of("service_heartbeat")[-1][2] is True
     assert platform.of("worker_heartbeat")[-1][2] == "STOPPED"
+
+
+def test_job_updates_carry_the_trace_id_of_the_context():
+    from svn_obskit import use_context
+
+    updates = []
+    w = Worker("w", on_job_update=updates.append).start()
+    with use_context(trace_id="a" * 32):
+        with w.job("j1", workflow_run_id="run-1"):
+            assert current_context().trace_id == "a" * 32
+    assert [u["trace_id"] for u in updates] == ["a" * 32, "a" * 32]  # RUNNING and COMPLETED
+    assert updates[0]["workflow_run_key"] == "run-1"
+
+
+def test_job_without_a_trace_starts_one_and_logs_share_it():
+    updates = []
+    w = Worker("w", on_job_update=updates.append).start()
+    with w.job("j2"):
+        inside = current_context().trace_id
+    assert inside and {u["trace_id"] for u in updates} == {inside}

@@ -34,6 +34,19 @@ with tracker.workflow("news-video-pipeline", workflow_id="wf-123") as wf:
 | `OBSKIT_ENVIRONMENT`, `OBSKIT_SERVICE_VERSION`, `OBSKIT_INSTANCE_ID` | identity |
 | `OBSKIT_FLUSH_INTERVAL_S`, `OBSKIT_MAX_BACKOFF_S`, `OBSKIT_LOG_LEVEL` | tuning |
 
+## Claude skill for agents
+
+The package bundles a Claude Code skill that teaches an agent how to classify what a service does (service, worker,
+job, workflow/step, logs, traces, metrics) and which SDK call reports it. Install it into a service repo with:
+
+```bash
+pip install svn-obskit && obskit init-claude      # or: python -m svn_obskit init-claude
+```
+
+It copies the skill to `.claude/skills/obs-integration/` and adds a marked block to `CLAUDE.md` (re-running updates it;
+`--force` replaces the skill copy, `--user` installs into `~/.claude`, `--no-claude-md` skips `CLAUDE.md`). The skill
+ships with the SDK, so it always matches the installed version.
+
 ## Spans and metrics (optional extras)
 
 ```bash

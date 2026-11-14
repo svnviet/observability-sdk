@@ -5,7 +5,8 @@ from enum import StrEnum
 from typing import Any
 
 from svn_obskit import runtime
-from svn_obskit.core.context import use_context
+from svn_obskit.core.context import current_context, use_context
+from svn_obskit.core.correlation import new_trace_id
 from svn_obskit.core.scope import ScopeBase
 from svn_obskit.workflow.tracker import error_details
 
@@ -102,12 +103,15 @@ class _JobScope(ScopeBase):
     def __init__(self, worker: Worker, job_id: str, run_key: str | None, metadata: dict) -> None:
         super().__init__()
         self._worker, self._job_id, self._run_key, self._metadata = worker, job_id, run_key, metadata
+        self._trace_id: str | None = None
 
     def _update(self, status: str, **extra: Any) -> None:
         update = {"external_job_id": self._job_id, "status": status, "worker_name": self._worker.name,
                   "metadata": self._metadata, **extra}  # fmt: skip
         if self._run_key:
             update["workflow_run_key"] = self._run_key
+        if self._trace_id:
+            update["trace_id"] = self._trace_id  # lets the platform link the job to its trace and logs
         self._worker._on_job_update(update)
 
     def _enter(self) -> str:
@@ -122,7 +126,12 @@ class _JobScope(ScopeBase):
                                 "obskit.worker.type": self._worker.worker_type},
                 )
             )  # fmt: skip
-        self._stack.enter_context(use_context(worker_id=self._worker.name, job_id=self._job_id))
+        # The span above (when tracing is on) or the caller's context supplies the trace; otherwise start one,
+        # so the job's logs and its platform record always share an id.
+        self._trace_id = current_context().trace_id or new_trace_id()
+        self._stack.enter_context(
+            use_context(worker_id=self._worker.name, job_id=self._job_id, trace_id=self._trace_id)
+        )
         self._worker._job_started(self._job_id)
         self._update("RUNNING")
         return self._job_id
