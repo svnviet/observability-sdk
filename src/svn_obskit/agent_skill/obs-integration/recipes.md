@@ -10,17 +10,19 @@ from fastapi import FastAPI
 from svn_obskit import Observability
 from svn_obskit.middleware.fastapi import ObservabilityMiddleware
 
-obs = Observability("video-service")           # reads OBSKIT_* env
+obs = Observability("video-service")  # reads OBSKIT_* env
+
 
 @asynccontextmanager
 async def lifespan(app):
-    obs.initialize()                            # logging, delivery, heartbeat, tracing, metrics
+    obs.initialize()  # logging, delivery, heartbeat, tracing, metrics
     yield
     obs.shutdown()
 
+
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(ObservabilityMiddleware, service_name="video-service")
-obs.mount_metrics(app)                          # /metrics (needs svn-obskit[metrics])
+obs.mount_metrics(app)  # /metrics (needs svn-obskit[metrics])
 ```
 
 ## Worker + job (queue consumer)
@@ -29,9 +31,9 @@ obs.mount_metrics(app)                          # /metrics (needs svn-obskit[met
 obs = Observability("video-service").initialize()
 worker = obs.worker("render-worker", worker_type="render", capacity=2)
 
-for msg in consume():                           # your queue loop
+for msg in consume():  # your queue loop
     with worker.job(msg.job_id, workflow_run_id=msg.run_id, metadata={"kind": msg.kind}):
-        handle(msg)                             # raise => job FAILED + error captured; re-raised
+        handle(msg)  # raise => job FAILED + error captured; re-raised
 ```
 Async code: `async with worker.job(...)`. Use the producer's run id as `workflow_run_id` so the job links to its workflow.
 
@@ -39,9 +41,10 @@ Async code: `async with worker.job(...)`. Use the producer's run id as `workflow
 
 ```python
 from svn_obskit import WorkflowTracker
+
 tracker = WorkflowTracker()
 
-with tracker.workflow("news-video-pipeline", workflow_id="news-video") as wf:   # wf.id = run id
+with tracker.workflow("news-video-pipeline", workflow_id="news-video") as wf:  # wf.id = run id
     with wf.step("script"):
         make_script()
     for attempt in range(1, 4):
@@ -80,17 +83,19 @@ For start/finish in different processes use `start_step` / `complete_step` / `fa
 
 ```python
 from svn_obskit.integrations import httpx as traced
+
 with traced.client(base_url=OTHER_URL) as c:
-    c.post("/render", json=payload)            # adds traceparent + x-obskit-* headers
+    c.post("/render", json=payload)  # adds traceparent + x-obskit-* headers
 ```
 
 ## Logging
 
 ```python
 import logging
-log = logging.getLogger(__name__)               # after obs.initialize()
+
+log = logging.getLogger(__name__)  # after obs.initialize()
 log.info("render started", extra={"frames": 240})
-log.exception("render failed")                  # stack trace included, secrets redacted
+log.exception("render failed")  # stack trace included, secrets redacted
 ```
 Context fields (`trace_id`, `job_id`, `workflow_run_id`, ...) are attached automatically inside job/step/request scopes.
 
