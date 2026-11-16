@@ -1,6 +1,6 @@
 ---
 name: obs-integration
-description: Instrument a service with svn-obskit so it reports to the OBS platform. Use when adding or reviewing observability in a repo that depends on svn-obskit (svn_obskit imports, OBSKIT_* env vars), or when deciding what information to send to OBS and how - services, instances, workers, jobs, workflows/steps, logs, traces, metrics, errors. Teaches how to classify what you find in code and which SDK call reports it.
+description: Instrument a service with svn-obskit so it registers with and reports to the OBS platform (register, edit, remove its service/instance/worker records). Use when adding or reviewing observability in a repo that depends on svn-obskit (svn_obskit imports, OBSKIT_* env vars), or when deciding what information to send to OBS and how - services, instances, workers, jobs, workflows/steps, logs, traces, metrics, errors. Teaches how to classify what you find in code and which SDK call reports it.
 ---
 
 # svn-obskit integration (agent guide)
@@ -52,6 +52,7 @@ If something fits none of these, it probably does not belong in observability.
 
 1. **Config (env, never hard-coded; add to `.env.example`):** `OBSKIT_PLATFORM_URL`, `OBSKIT_API_KEY`,
    `OBSKIT_ENVIRONMENT`, `OBSKIT_SERVICE_VERSION`, **`OBSKIT_INSTANCE_ID` (fixed per process/pod)**,
+   `OBSKIT_HEALTH_URL` (if the service has a health route the platform can reach),
    optionally `OBSKIT_OUTBOX_PATH` (durable), `OBSKIT_OTLP_ENDPOINT`, `OBSKIT_METRICS_PORT`.
    Without `OBSKIT_PLATFORM_URL` the SDK buffers but never delivers — it logs a warning, nothing else.
 2. **Init once per process** (web app: FastAPI lifespan; worker script: `main()`); `shutdown()` on exit so a planned stop is not seen as a crash.
@@ -59,6 +60,36 @@ If something fits none of these, it probably does not belong in observability.
 4. **Workers/jobs:** one `obs.worker(...)` per consumer loop, one `worker.job(...)` per message.
 5. **Workflows:** wrap the pipeline in `tracker.workflow(...)`; each stage in `wf.step(...)`; retries via `attempt`/`max_attempts`.
 6. **Crossing a boundary** (HTTP, queue, subprocess): contextvars do **not** cross threads/processes. HTTP: use `integrations.httpx` clients and the middleware. Queues: put `inject_headers(current_context())` (or `StepHandle.to_dict()`/`WorkflowRun.to_dict()`) into the message and restore with `extract_context` / `use_context` / `tracker.attach(...)` in the consumer.
+
+## Registration: what happens automatically, and how to edit or remove it
+
+A service never calls a "register" endpoint by hand. Know which call registers what, and use the registry
+only to **correct or clean up its own records**.
+
+| Record on OBS | Created by | Identity (fixed; changing it creates a new record) | Edit | Remove |
+|---|---|---|---|---|
+| Service | first `initialize()` of any instance | `service_name` + `OBSKIT_ENVIRONMENT` | `obs.registry.update_service(version=, metadata=)` | not from the SDK (it affects every instance; an operator does it on the platform) |
+| Instance | `initialize()` (re-registers itself if the platform forgets it) | `OBSKIT_INSTANCE_ID` | `obs.registry.update_instance(hostname=, metadata=)`, `obs.registry.set_health_url(url)` | `obs.unregister()` |
+| Worker | `obs.worker(name, ...)` | worker `name` within the instance | `obs.registry.update_worker(worker, worker_type=, capacity=, metadata=)` | `obs.registry.remove_worker(worker)` |
+| Job | `worker.job(job_id)` | your `job_id` | re-report the status | never (history) |
+| Workflow run | `tracker.workflow(...)` / `start_workflow` | `workflow_id` + run id | more events | not from the SDK |
+
+Decide with these rules:
+- **Set it at registration when you can.** Version → `OBSKIT_SERVICE_VERSION`; health route → `OBSKIT_HEALTH_URL`
+  (must be reachable *from the platform*); worker type/capacity → arguments of `obs.worker(...)`. Use `update_*` only
+  for something that changes while the process runs (capacity scaled, a new health URL, a metadata flag).
+- **Renaming is not an edit.** A new `service_name`, environment, instance id or worker name registers a *new*
+  record and leaves the old one behind. If a rename is intended, remove the old record (`unregister()` /
+  `remove_worker`) in the same change.
+- **Stop vs. remove.** A normal stop or restart → `obs.shutdown()`: the record stays as STOPPED and its history
+  remains visible. Use `obs.unregister()` only when the instance is retired for good (decommissioned pod, a test
+  or one-off run), and `remove_worker` only when that worker will not come back.
+- **Only your own records.** The platform key is shared, so nothing technical stops a service deleting another's
+  data: never call the platform's delete routes for a record this process did not create. Test code that registers
+  throwaway services/instances must remove them when it finishes.
+- `metadata` is merged; a key set to `None` is removed. Keep it small and free of secrets and PII.
+- Every `obs.registry.*` call and `unregister()` returns `True`/`False` and never raises; log or ignore a `False`,
+  do not retry in a loop. `obs.registry` is `None` when no `OBSKIT_PLATFORM_URL` is set.
 
 ## Known behaviors and limits (verified in the SDK source — do not assume otherwise)
 

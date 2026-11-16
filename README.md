@@ -32,6 +32,7 @@ with tracker.workflow("news-video-pipeline", workflow_id="wf-123") as wf:
 | `OBSKIT_PLATFORM_URL`, `OBSKIT_API_KEY` | where and how to deliver events |
 | `OBSKIT_OUTBOX_PATH` | enables the durable outbox |
 | `OBSKIT_ENVIRONMENT`, `OBSKIT_SERVICE_VERSION`, `OBSKIT_INSTANCE_ID` | identity |
+| `OBSKIT_HEALTH_URL` | health route the platform should probe (sent at registration) |
 | `OBSKIT_FLUSH_INTERVAL_S`, `OBSKIT_MAX_BACKOFF_S`, `OBSKIT_LOG_LEVEL` | tuning |
 
 ## Claude skill for agents
@@ -72,6 +73,24 @@ with worker.job(job_id, workflow_run_id=run.id):  # async: `async with`
 
 A heartbeat thread reports the service instance and every worker on `OBSKIT_HEARTBEAT_INTERVAL_S`,
 independent of job execution. `obs.shutdown()` reports a planned stop, so only a crash looks like one.
+
+## Registering, editing and removing
+
+Registration is automatic: `initialize()` registers the service and this instance, `obs.worker(...)` registers a
+worker. Set `OBSKIT_HEALTH_URL` to have the platform probe the instance. To correct or clean up **this process's own**
+records afterwards:
+
+```python
+obs.registry.update_service(version="1.3.0", metadata={"team": "media"})
+obs.registry.update_instance(metadata={"zone": "a"})  # merged; a key set to None is removed
+obs.registry.set_health_url("https://video.example.com/health")
+obs.registry.update_worker(worker, capacity=4)
+obs.registry.remove_worker(worker)  # a worker that will not come back
+obs.unregister()  # retire this instance for good (a normal stop is obs.shutdown())
+```
+
+Each call returns True/False and never raises. `obs.registry` is None when no platform URL is configured. A service's
+name and environment are its identity and cannot be edited. Requires a platform with the edit/delete routes.
 
 ## Resilience (`svn_obskit.resilience`)
 

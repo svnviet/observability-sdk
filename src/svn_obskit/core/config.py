@@ -27,6 +27,9 @@ class ObservabilityConfig:
     metrics_enabled: bool = True  # only has an effect when prometheus-client is installed
     metrics_port: int | None = None  # serve /metrics on its own port (for processes without a web server)
     heartbeat_interval_s: float = 10.0  # keep well below the platform's heartbeat timeout (30s default)
+    # URL of this instance's health route as the platform can reach it; sent at registration so the platform
+    # probes it. None leaves active probing off.
+    health_url: str | None = None
 
     def __post_init__(self) -> None:
         if not self.service_name:
@@ -52,6 +55,7 @@ class ObservabilityConfig:
             "metrics_enabled": env("OBSKIT_METRICS_ENABLED", "true").lower() != "false",
             "metrics_port": int(env("OBSKIT_METRICS_PORT")) if env("OBSKIT_METRICS_PORT") else None,
             "heartbeat_interval_s": float(env("OBSKIT_HEARTBEAT_INTERVAL_S", "10.0")),
+            "health_url": env("OBSKIT_HEALTH_URL"),
         }
         values.update(overrides)
         return cls(service_name=service_name, **values)

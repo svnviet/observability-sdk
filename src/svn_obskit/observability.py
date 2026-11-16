@@ -7,6 +7,7 @@ from svn_obskit.core.identity import ServiceIdentity
 from svn_obskit.logging.logger import configure_logging
 from svn_obskit.metrics.collectors import RuntimeCollector
 from svn_obskit.metrics.registry import PROMETHEUS_AVAILABLE, Metrics
+from svn_obskit.registry import Registry
 from svn_obskit.tracing.provider import Tracing
 from svn_obskit.transport.background import BackgroundPublisher
 from svn_obskit.transport.http import HttpTransport
@@ -43,6 +44,9 @@ class Observability:
         self._heartbeat: HeartbeatService | None = None
         self._platform: PlatformClient | None = None
         self._workers: list[Worker] = []
+        self.registry: Registry | None = (
+            None  # edit/remove what this process registered; None without a platform_url
+        )
 
     def initialize(self) -> Self:
         cfg = self.config
@@ -58,8 +62,12 @@ class Observability:
         self._publisher.start()
         if cfg.platform_url:
             self._platform = PlatformClient(cfg.platform_url, cfg.api_key, cfg.delivery_timeout_s)
-            self._heartbeat = HeartbeatService(self._platform, self.identity, cfg.heartbeat_interval_s)
+            instance_metadata = {"health_url": cfg.health_url} if cfg.health_url else None
+            self._heartbeat = HeartbeatService(
+                self._platform, self.identity, cfg.heartbeat_interval_s, instance_metadata
+            )
             self._heartbeat.start()
+            self.registry = Registry(self._platform, self._heartbeat, self.identity)
         self.tracing = Tracing.configure(
             self.identity,
             endpoint=cfg.otlp_endpoint,
@@ -142,13 +150,26 @@ class Observability:
     def flush(self, timeout_s: float = 5.0) -> bool:
         return self._publisher.flush(timeout_s) if self._publisher else True
 
+    def unregister(self, timeout_s: float = 5.0) -> bool:
+        """Shut down and delete this instance's record: for an instance that is being retired for good.
+
+        A normal stop should use `shutdown()`, which leaves the record as STOPPED so its history stays visible.
+        Returns False when the platform could not be told (the record is then purged by the platform later).
+        """
+        registry, heartbeat = self.registry, self._heartbeat
+        if heartbeat:
+            heartbeat.stop()  # first, or the next heartbeat would register the instance again
+        removed = registry.remove_instance() if registry else False
+        self.shutdown(timeout_s)
+        return removed
+
     def shutdown(self, timeout_s: float = 5.0) -> None:
         if runtime.get_active() is self:
             runtime.set_active(None)
         for worker in self._workers:
             worker.stop()
         if self._heartbeat:
-            self._heartbeat.stop()
+            self._heartbeat.stop()  # safe to call twice: unregister() stops it before deleting the instance
         if self._platform:
             self._platform.close()
         if self._publisher:

@@ -37,6 +37,29 @@ for msg in consume():  # your queue loop
 ```
 Async code: `async with worker.job(...)`. Use the producer's run id as `workflow_run_id` so the job links to its workflow.
 
+## Register, edit, remove (this service's own records)
+
+Registration is automatic; these are the only calls needed to correct or clean up.
+
+```python
+obs = Observability(
+    "video-service"
+).initialize()  # registers service + instance (OBSKIT_INSTANCE_ID, OBSKIT_HEALTH_URL)
+worker = obs.worker("render-worker", worker_type="render", capacity=2)  # registers the worker
+
+if obs.registry:  # None when no OBSKIT_PLATFORM_URL is set
+    obs.registry.update_service(metadata={"team": "media"})
+    obs.registry.set_health_url("https://video.example.com/health")
+    obs.registry.update_worker(worker, capacity=4)  # e.g. after scaling the pool
+    obs.registry.remove_worker(worker)  # this worker will not come back
+
+obs.shutdown()  # normal stop: the instance stays on OBS as STOPPED
+# obs.unregister()  # instead of shutdown(), only when this instance is retired for good (also for test runs)
+```
+
+All of these return True/False and never raise. A test that registers a throwaway service should end with
+`obs.unregister()` so it leaves nothing behind.
+
 ## Workflow with steps and retries (one process)
 
 ```python
@@ -111,5 +134,5 @@ def encode(...): ...
 ## `/health` for OBS probing
 
 OBS probes `GET /health`: return 2xx + JSON `{"status": "ok", "system": {"cpu_percent": ..., "memory_percent": ..., "disk_percent": ...}}`;
-return non-2xx or `"status": "down"` when a critical dependency is broken. Register its URL by setting
-`metadata.health_url` or `PUT /services/{id}/instances/{instance}/health-url` on OBS.
+return non-2xx or `"status": "down"` when a critical dependency is broken. Register its URL with `OBSKIT_HEALTH_URL`
+(sent at registration) or `obs.registry.set_health_url(url)` at runtime.

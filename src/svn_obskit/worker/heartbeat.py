@@ -18,10 +18,17 @@ class HeartbeatService:
     and a worker whose process dies stops heartbeating, which is what the platform detects.
     """
 
-    def __init__(self, client: PlatformClient, identity: ServiceIdentity, interval_s: float) -> None:
+    def __init__(
+        self,
+        client: PlatformClient,
+        identity: ServiceIdentity,
+        interval_s: float,
+        instance_metadata: dict | None = None,
+    ) -> None:
         self._client = client
         self._identity = identity
         self._interval = interval_s
+        self._instance_metadata = instance_metadata or {}
         self._service_id: str | None = None
         self._last_ok: float | None = None
         self._workers: list[Worker] = []
@@ -38,10 +45,27 @@ class HeartbeatService:
         """Seconds since the platform last accepted a service heartbeat; None before the first one."""
         return None if self._last_ok is None else time.monotonic() - self._last_ok
 
+    @property
+    def service_id(self) -> str | None:
+        """The platform's id for this service; None until the first registration succeeds."""
+        return self._service_id
+
+    def ensure_registered(self) -> str:
+        """Register now if the background thread has not done it yet. Raises TransportError on failure."""
+        if self._service_id is None:
+            self._service_id = self._register()
+        return self._service_id
+
     def add_worker(self, worker: Worker) -> None:
         with self._lock:
             self._workers.append(worker)
         self.wake()
+
+    def remove_worker(self, worker: Worker) -> None:
+        """Stop heartbeating for a worker (so deleting it on the platform is not undone by the next tick)."""
+        with self._lock:
+            if worker in self._workers:
+                self._workers.remove(worker)
 
     def queue_job_update(self, update: dict) -> None:
         self._jobs.append(update)
@@ -51,7 +75,13 @@ class HeartbeatService:
         self._wake.set()
 
     def stop(self, timeout_s: float = 3.0) -> None:
-        """Tell the platform this instance and its workers are stopping on purpose, then end the thread."""
+        """Tell the platform this instance and its workers are stopping on purpose, then end the thread.
+
+        Only the first call does anything, so a later shutdown cannot heartbeat an instance back into
+        existence after it was deleted.
+        """
+        if self._stop.is_set():
+            return
         self._stop.set()
         self._wake.set()
         self._thread.join(timeout=timeout_s)
@@ -72,7 +102,7 @@ class HeartbeatService:
     def _tick(self, *, stopping: bool = False) -> None:
         try:
             if self._service_id is None:
-                self._service_id = self._client.register_service(self._identity)
+                self._service_id = self._register()
             else:
                 self._client.service_heartbeat(
                     self._service_id, self._identity.instance_id, stopping=stopping
@@ -86,6 +116,11 @@ class HeartbeatService:
         for worker in workers:
             self._beat_worker(worker, stopping)
         self._flush_jobs()
+
+    def _register(self) -> str:
+        if self._instance_metadata:
+            return self._client.register_service(self._identity, self._instance_metadata)
+        return self._client.register_service(self._identity)  # keeps the one-argument call older fakes expect
 
     def _beat_worker(self, worker: Worker, stopping: bool) -> None:
         try:
