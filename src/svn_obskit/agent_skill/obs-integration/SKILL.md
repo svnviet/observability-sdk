@@ -15,6 +15,43 @@ OBS keeps **operational state** (service, instance, worker, job, workflow, incid
 telemetry. Logs, traces and metrics live in their own backends (Loki, Jaeger, Prometheus); OBS only
 points to them using shared ids. So every piece of information has exactly one correct channel.
 
+## Quick connect (do this first, takes five minutes)
+
+Goal: the service shows up HEALTHY on OBS. Add jobs/workflows afterwards (Steps 1-3).
+
+1. **Get two values** from whoever runs OBS: the URL (`OBSKIT_PLATFORM_URL`, e.g. `https://obs.example.com`) and the
+   API key (`OBSKIT_API_KEY`). Never commit the key; put the names in `.env.example` and the values in the
+   deployment's secret store. If you do not have them, stop and ask; do not invent values.
+2. **Preflight (before touching code)** so a bad URL or key is caught now, not as a silent no-op later:
+   ```bash
+   curl -fsS "$OBSKIT_PLATFORM_URL/health"                                   # {"status":"ok"}  => reachable
+   curl -fsS -H "X-API-Key: $OBSKIT_API_KEY" "$OBSKIT_PLATFORM_URL/auth/check"  # {"ok":true}      => key accepted
+   ```
+   Unreachable: wrong URL or network/firewall. `401`: wrong key. Fix these first.
+3. **Set the env** (minimum): `OBSKIT_PLATFORM_URL`, `OBSKIT_API_KEY`, `OBSKIT_ENVIRONMENT`,
+   `OBSKIT_INSTANCE_ID` (fixed per process/pod, never a pid or random value).
+4. **Init once per process.** Pick the repo's shape from `recipes.md` (FastAPI lifespan, worker `main()`), or at minimum:
+   ```python
+   from svn_obskit import Observability
+
+   obs = Observability("<service-name>").initialize()  # registers service + instance, starts heartbeat
+   ...
+   obs.shutdown()  # on exit, so a planned stop is not seen as a crash
+   ```
+5. **Confirm it connected:** start the service, wait ~15 s, then
+   `curl "$OBSKIT_PLATFORM_URL/services"` must list `<service-name>` HEALTHY with your instance id.
+
+If step 5 fails, use this table (the SDK never raises, so a failure is silent: check OBS, not your logs only):
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Log line `no platform_url configured` | `OBSKIT_PLATFORM_URL` not set in the *running* process | set it where the process starts (container env, systemd unit), not just a local shell |
+| Service never appears, no errors | wrong URL, or the host cannot reach OBS | repeat the preflight `curl` **from the same host/container** the service runs in |
+| `401` on `/auth/check` or nothing registers | missing/wrong `OBSKIT_API_KEY` | use the key OBS issued; check for trailing spaces/newlines |
+| Instance registers then goes UNHEALTHY / duplicates pile up | no fixed `OBSKIT_INSTANCE_ID` | set it; remove stale instances with `obs.unregister()` / the platform UI |
+| Registration rejected (`422`) | `OBSKIT_HEALTH_URL` is not an absolute `http://` or `https://` URL | fix it, or unset it; it must be reachable *from OBS*, so `localhost` is wrong unless OBS runs on the same host |
+| Service shows but health probe is DOWN | `/health` not 2xx, redirects, or URL not reachable from OBS | `curl -i` the exact URL from the OBS host: it must answer 2xx directly (no 301/307) with JSON `{"status":"ok"}` |
+
 ## Step 1 — Classify what the code does
 
 Walk the repo and fill this table before editing anything. "None found" is a valid answer.
@@ -52,7 +89,7 @@ If something fits none of these, it probably does not belong in observability.
 
 1. **Config (env, never hard-coded; add to `.env.example`):** `OBSKIT_PLATFORM_URL`, `OBSKIT_API_KEY`,
    `OBSKIT_ENVIRONMENT`, `OBSKIT_SERVICE_VERSION`, **`OBSKIT_INSTANCE_ID` (fixed per process/pod)**,
-   `OBSKIT_HEALTH_URL` (if the service has a health route the platform can reach),
+   `OBSKIT_HEALTH_URL` (if the service has a health route the platform can reach; absolute `http://`/`https://` only, else registration is rejected),
    optionally `OBSKIT_OUTBOX_PATH` (durable), `OBSKIT_OTLP_ENDPOINT`, `OBSKIT_METRICS_PORT`.
    Without `OBSKIT_PLATFORM_URL` the SDK buffers but never delivers — it logs a warning, nothing else.
 2. **Init once per process** (web app: FastAPI lifespan; worker script: `main()`); `shutdown()` on exit so a planned stop is not seen as a crash.
@@ -71,18 +108,17 @@ only to **correct or clean up its own records**.
 | Service | first `initialize()` of any instance | `service_name` + `OBSKIT_ENVIRONMENT` | `obs.registry.update_service(version=, metadata=)` | not from the SDK (it affects every instance; an operator does it on the platform) |
 | Instance | `initialize()` (re-registers itself if the platform forgets it) | `OBSKIT_INSTANCE_ID` | `obs.registry.update_instance(hostname=, metadata=)`, `obs.registry.set_health_url(url)` | `obs.unregister()` |
 | Worker | `obs.worker(name, ...)` | worker `name` within the instance | `obs.registry.update_worker(worker, worker_type=, capacity=, metadata=)` | `obs.registry.remove_worker(worker)` |
-| Job | `worker.job(job_id)` | your `job_id` | re-report the status | never (history) |
+| Job | `worker.job(job_id)` | your `job_id` | RUNNING can be re-reported; **a terminal job (COMPLETED/FAILED/CANCELLED) is frozen**, later updates are ignored | never (history) |
 | Workflow run | `tracker.workflow(...)` / `start_workflow` | `workflow_id` + run id | more events | not from the SDK |
 
 Decide with these rules:
 - **Set it at registration when you can.** Version → `OBSKIT_SERVICE_VERSION`; health route → `OBSKIT_HEALTH_URL`
-  (must be reachable *from the platform*); worker type/capacity → arguments of `obs.worker(...)`. Use `update_*` only
+  (absolute `http://` or `https://`, reachable *from the platform*; otherwise OBS rejects the registration with 422); worker type/capacity → arguments of `obs.worker(...)`. Use `update_*` only
   for something that changes while the process runs (capacity scaled, a new health URL, a metadata flag).
 - **Renaming is not an edit.** A new `service_name`, environment, instance id or worker name registers a *new*
   record and leaves the old one behind. If a rename is intended, remove the old record (`unregister()` /
   `remove_worker`) in the same change.
-- **Stop vs. remove.** A normal stop or restart → `obs.shutdown()`: the record stays as STOPPED and its history
-  remains visible. Use `obs.unregister()` only when the instance is retired for good (decommissioned pod, a test
+- **Stop vs. remove.** A normal stop or restart → `obs.shutdown()`: the record stays as STOPPED (OBS deletes it after 7 days of silence; jobs and incidents are kept). Use `obs.unregister()` only when the instance is retired for good (decommissioned pod, a test
   or one-off run), and `remove_worker` only when that worker will not come back.
 - **Only your own records.** The platform key is shared, so nothing technical stops a service deleting another's
   data: never call the platform's delete routes for a record this process did not create. Test code that registers
@@ -91,7 +127,11 @@ Decide with these rules:
 - Every `obs.registry.*` call and `unregister()` returns `True`/`False` and never raises; log or ignore a `False`,
   do not retry in a loop. `obs.registry` is `None` when no `OBSKIT_PLATFORM_URL` is set.
 
-## Known behaviors and limits (verified in the SDK source — do not assume otherwise)
+## Known behaviors and limits (verified in the SDK source and the OBS API — do not assume otherwise)
+
+- **A finished job is frozen on OBS.** After `COMPLETED`/`FAILED`/`CANCELLED`, further updates for that `job_id` change nothing. A retry of the work therefore needs a **new `job_id`** (e.g. `f"{msg_id}-try2"`), or should be a step attempt inside a workflow; never reuse the id and expect OBS to show RUNNING again.
+- **A rejected event is dropped silently.** `POST /events/batch` answers HTTP 200 even when an event is `REJECTED` (malformed or missing required context); the SDK treats 200 as delivered and never resends. After wiring workflows, check `GET $URL/events/rejected` is empty for your service (and `/monitoring/overview` shows 0 rejected).
+- **Record lifecycle on OBS:** an instance/worker with no heartbeat for 30 s becomes UNHEALTHY and opens an incident; after 24 h silent it is marked STOPPED, and after 7 days it is deleted (jobs and incidents are kept). So a crashed pod cleans itself up; `unregister()` is only for removing it sooner.
 
 - **Instance id:** if `OBSKIT_INSTANCE_ID` is unset the SDK uses `name-host-pid-random`, so every restart registers a *new* instance and leaves a duplicate. Always set it.
 - **Jobs report `RUNNING` then `COMPLETED`/`FAILED`/`CANCELLED`; the SDK never sends `QUEUED`.** If the service needs queue-wait visibility, POST `/jobs` with `status: QUEUED` yourself at enqueue time (fail-soft, short timeout).
@@ -100,6 +140,12 @@ Decide with these rules:
 - Logs go to **stderr** as one JSON line each, with `service_name`, `instance_id` and the active context (`trace_id`, `span_id`, `correlation_id`, `workflow_id`, `workflow_run_id`, `step_id`, `job_id`, `worker_id`) as top-level fields. Keys matching password/secret/token/api key are redacted. Extra fields passed via `logger.info("msg", extra={...})` are included.
 - Metric labels are bounded by design (method, route template, status class, workflow name, step name, worker type, exception class).
 - Not available yet: RabbitMQ transport, transactional outbox in the app DB.
+
+## What OBS does with what you send
+
+- **Incidents open by themselves** when an instance/worker misses heartbeats, a workflow ends `FAILED`/`TIMED_OUT`, or the health probe fails 3 times in a row; they close when the condition clears (`GET $URL/incidents?status=OPEN`). A step failure with `will_retry` does not fail the workflow. Do not report a terminal workflow/job state until it is really final.
+- **Health probe contract** (OBS calls `OBSKIT_HEALTH_URL` every 30 s, timeout 5 s): 2xx is UP; a body `status` of `down|error|fail|failed|unhealthy` is DOWN. **Redirects are not followed**, so a route that redirects (e.g. `/health/` vs `/health`, http to https) counts as failed: register the final URL. Body is read up to 64 KB. Optional numbers, top level or under `"system"`, feed the Infra view: `cpu_percent`, `memory_percent`, `disk_percent`, `load_1m`, `cpu_count`, `memory_total_mb`, `memory_used_mb`, `disk_total_gb`, `disk_used_gb`, `process_cpu_percent`, `process_memory_mb`, `active_requests`, `queue_depth`.
+- **Links to logs, traces, metrics** (`GET /jobs/{id}/observability`, `/services/{id}/observability`, ...) are built from templates the OBS operator configures. A link is `available: false` when OBS has no template or a placeholder has no value. Make sure your logs carry the ids those links use (`trace_id`, `job_id`, `worker_id`, `workflow_run_id`; they do after `initialize()`), and tell the OBS operator if a link you expect is unavailable; it is an OBS setting, not an SDK bug.
 
 ## Never
 
@@ -115,6 +161,7 @@ Decide with these rules:
 2. Trigger one job → `GET $URL/jobs?external_job_id=<id>` shows RUNNING→COMPLETED with the worker; fail one on purpose → FAILED with the error.
 3. Trigger one workflow → `GET $URL/workflow-runs?workflow_id=<id>` shows steps and attempts; force a retry → step RETRYING, then attempt 2.
 4. One log line from inside a job parses as JSON and has `job_id`, and `workflow_run_id` when in a workflow.
-5. Point `OBSKIT_PLATFORM_URL` at a dead host: the service still starts and serves normally.
+5. `GET $URL/events/rejected` has nothing from this service, and `GET $URL/jobs/<obs-job-uuid>/observability` shows a trace link when a trace id exists.
+6. Point `OBSKIT_PLATFORM_URL` at a dead host: the service still starts and serves normally.
 
 Finish with a table: concept → found in (file) → reported with → verified how, plus anything skipped and why.

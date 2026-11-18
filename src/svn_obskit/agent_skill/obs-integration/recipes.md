@@ -133,6 +133,6 @@ def encode(...): ...
 
 ## `/health` for OBS probing
 
-OBS probes `GET /health`: return 2xx + JSON `{"status": "ok", "system": {"cpu_percent": ..., "memory_percent": ..., "disk_percent": ...}}`;
+OBS probes the registered URL every 30 s and does **not follow redirects** (register the final URL, e.g. `/health` not `/health/`): return 2xx + JSON `{"status": "ok", "system": {"cpu_percent": ..., "memory_percent": ..., "disk_percent": ...}}`;
 return non-2xx or `"status": "down"` when a critical dependency is broken. Register its URL with `OBSKIT_HEALTH_URL`
 (sent at registration) or `obs.registry.set_health_url(url)` at runtime.
