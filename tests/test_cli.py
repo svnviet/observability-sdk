@@ -6,6 +6,8 @@ def test_init_claude_installs_skill_and_claude_md(tmp_path, capsys):
     skill = tmp_path / ".claude" / "skills" / "obs-integration"
     assert (skill / "SKILL.md").read_text(encoding="utf-8").startswith("---\nname: obs-integration")
     assert (skill / "recipes.md").exists()
+    profile_skill = tmp_path / ".claude" / "skills" / "obs-service-profile" / "SKILL.md"
+    assert profile_skill.read_text(encoding="utf-8").startswith("---\nname: obs-service-profile")
     assert cli.BEGIN in (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
 
 

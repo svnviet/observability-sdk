@@ -43,6 +43,13 @@ class PlatformClient:
     ) -> dict:
         return self._send("PATCH", f"/services/{service_id}", _given(version=version, metadata=metadata))
 
+    def find_service_id(self, service_name: str, environment: str) -> str | None:
+        """Look a service up by its identity without registering an instance (reads need no key)."""
+        for service in self._get("/services"):
+            if service["name"] == service_name and service["environment"] == environment:
+                return service["id"]
+        return None
+
     def update_instance(
         self, service_id: str, instance_id: str, *, hostname: str | None = None, metadata: dict | None = None
     ) -> dict:
@@ -108,6 +115,9 @@ class PlatformClient:
 
     def close(self) -> None:
         self._client.close()
+
+    def _get(self, path: str):
+        return self._send("GET", path)
 
     def _post(self, path: str, body: dict) -> dict:
         return self._send("POST", path, body)
